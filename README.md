@@ -1,6 +1,6 @@
 # Deeds
 
-The 'deeds' component is a Home Assistant is a habit / todo tracker for recurring events
+The 'deeds' component is a Home Assistant habit / todo tracker for recurring events
 
 ## Table of Contents
 
