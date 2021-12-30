@@ -1,0 +1,31 @@
+# Describes the format for Deeds service
+api_call:
+  name: Deeds Task API
+  description: Deeds API
+  fields:
+    name:
+      name: Task
+      description: Sets Name of Task, use name "all" to send a message to every task
+      required: true
+      example: pushups
+      selector:
+        text:
+
+    action:
+      name: Action
+      description: Selects an action.
+      required: true
+      example: "trigger"
+      selector:
+        select:
+          options:
+            - "reset"
+            - "pause"
+            - "trigger"
+
+    args:
+      name: Args
+      description: Any action arguments.
+      example: '{"arg1": "val1", "arg2": "val2"}'
+      selector:
+        object:

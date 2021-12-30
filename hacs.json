@@ -1,0 +1,5 @@
+{
+    "name": "deeds",
+    "domains": ["deeds", "sensor"],
+    "render_readme": true
+}

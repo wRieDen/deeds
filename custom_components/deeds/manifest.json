@@ -1,0 +1,11 @@
+{
+  "domain": "deeds",
+  "name": "deeds",
+  "documentation": "https://www.home-assistant.io/integrations/deeds",
+  "dependencies": [],
+  "codeowners": ["@wrieden"],
+  "iot_class": "calculated",
+  "requirements": [
+
+  ]
+}
