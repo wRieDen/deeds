@@ -6,7 +6,7 @@ from datetime import datetime, date, time, timedelta
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.entity import generate_entity_id
 from homeassistant.components.sensor import ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SensorEntity
-from homeassistant.const import CONF_NAME, ATTR_ATTRIBUTION, ATTR_NAME
+from homeassistant.const import CONF_NAME, ATTR_ATTRIBUTION, ATTR_NAME, EVENT_STATE_CHANGED
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.json import JSONEncoder
 from homeassistant.exceptions import HomeAssistantError
@@ -266,6 +266,8 @@ class Deeds(SensorEntity):
 
     async def handle_trigger(self):
         """Handles Trigger Events"""
+        old_state = self.state
+
         if self.is_valid():
             self.last_completion = datetime.datetime.now().astimezone().replace(microsecond=0)
             if self.max_interval is not None:
@@ -278,12 +280,15 @@ class Deeds(SensorEntity):
 
             self.successful_completions += 1
             self.current_streak += 1
+
+            await self.async_update_ha_state(force_refresh=True)
             await Deeds.store_state()
 
     async def handle_reset(self):
         """Handles Reset Events"""
         # await RestoreEntity.async_internal_will_remove_from_hass(self)
         self.reset()
+        await self.async_update_ha_state(force_refresh=True)
         await Deeds.store_state()
 
     ### Helper Functions ###
