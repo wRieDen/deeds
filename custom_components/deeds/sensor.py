@@ -5,7 +5,7 @@ from datetime import datetime, date, time, timedelta
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.entity import generate_entity_id
-from homeassistant.components.sensor import ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SensorEntity
+from homeassistant.components.sensor import ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SensorEntity, SensorDeviceClass, SensorStateClass, SensorEntityDescription
 from homeassistant.const import CONF_NAME, ATTR_ATTRIBUTION, ATTR_NAME, EVENT_STATE_CHANGED
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.json import JSONEncoder
@@ -55,7 +55,7 @@ class Deeds(SensorEntity):
         self.unit = config.get(CONF_UNIT_OF_MEASUREMENT, DEFAULT_UNIT_OF_MEASUREMENT)
 
         self.round_up_timedelta = relativedelta()
-        if self.max_interval is not None:
+        if self.max_interval is not None and self.round_up is not False:
             if self.round_up is True:
                 self.round_up = self.max_interval.get_max_relative_unit()
 
@@ -77,6 +77,8 @@ class Deeds(SensorEntity):
 
         if self.start is None and self.max_interval is not None:
             self.start = DeedsDate.from_datetime((datetime.datetime.now().astimezone().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta)
+        elif self.start is not None and self.start.is_relative:
+            self.start = DeedsDate.from_datetime((datetime.datetime.now().astimezone().replace(microsecond=0) + self.start) + self.round_up_timedelta)
 
         self.reschedule_interval = config.get(CONF_RESCHEDULE_INTERVAL)
         if self.reschedule_interval is None and self.max_interval is not None:
@@ -89,6 +91,9 @@ class Deeds(SensorEntity):
         self.missed_completions = 0
         self.current_streak = 0
         self.longest_streak = 0
+        self.rating = 0.0
+        self.rating_factor = 0.1
+
         self.reset()
 
         Deeds.instances[self.entity_id] = self
@@ -109,7 +114,8 @@ class Deeds(SensorEntity):
             for k, v in Deeds.instances.items():
                 if (attr := Deeds.stored_instances.get(k)) is not None:
                     v.attributes_from_dict(attr)
-                    v.init_done = True
+
+                v.init_done = True
 
             await Deeds.init_api(self.hass)
 
@@ -161,23 +167,31 @@ class Deeds(SensorEntity):
     @property
     def native_value(self):
         """Return the value reported by the sensor."""
-        return self.successful_completions
+        return self.rating * 100.0
         # return 0
 
-    # @property
-    # def native_unit_of_measurement(self):
-    #     """Return the unit of measurement of the sensor, if any."""
-    #     if hasattr(self, "_attr_native_unit_of_measurement"):
-    #         return self._attr_native_unit_of_measurement
-    #     if hasattr(self, "entity_description"):
-    #         return self.entity_description.native_unit_of_measurement
-    #     return None
+    @property
+    def state_class(self):
+        """State class of sensor."""
+        return SensorStateClass.MEASUREMENT
+
+    @property
+    def device_class(self):
+        """State class of sensor."""
+        # return SensorDeviceClass.POWER_FACTOR
+        return None
+
+    @property
+    def native_unit_of_measurement(self):
+        """Return the unit of measurement of the sensor, if any."""
+        return "%"
 
     def reset(self):
         """Resets Attributes to their defaults"""
         self.last_completion = None
         self.next_completion = self.start.get_datetime().astimezone().replace(microsecond=0)
         self.next_interval = self.start.get_datetime().astimezone().replace(microsecond=0)
+        self.rating = 0.0
         self.successful_completions = 0
         self.missed_completions = 0
         self.current_streak = 0
@@ -186,24 +200,26 @@ class Deeds(SensorEntity):
     def attributes_to_dict(self):
         """Returns dict from attributes"""
         return {
-            ATTR_LAST_COMPLETION: None if self.last_completion is None else self.last_completion.isoformat(),
-            ATTR_NEXT_COMPLETION: None if self.next_completion is None else self.next_completion.isoformat(),
-            ATTR_NEXT_INTERVAL: None if self.next_interval is None else self.next_interval.isoformat(),
-            ATTR_SUCCESSFUL_COMPLETIONS: self.successful_completions,
-            ATTR_MISSED_COMPLETIONS: self.missed_completions,
-            ATTR_CURRENT_STREAK: self.current_streak,
-            ATTR_LONGEST_STREAK: self.longest_streak,
+            STORE_LAST_COMPLETION: None if self.last_completion is None else self.last_completion.isoformat(),
+            STORE_NEXT_COMPLETION: None if self.next_completion is None else self.next_completion.isoformat(),
+            STORE_NEXT_INTERVAL: None if self.next_interval is None else self.next_interval.isoformat(),
+            STORE_RATING: self.rating,
+            STORE_SUCCESSFUL_COMPLETIONS: self.successful_completions,
+            STORE_MISSED_COMPLETIONS: self.missed_completions,
+            STORE_CURRENT_STREAK: self.current_streak,
+            STORE_LONGEST_STREAK: self.longest_streak,
         }
 
     def attributes_from_dict(self, attr):
         """Sets attributes from dict"""
-        self.last_completion = Deeds.isostr_as_datetime(attr.get(ATTR_LAST_COMPLETION, self.last_completion))
-        self.next_completion = Deeds.isostr_as_datetime(attr.get(ATTR_NEXT_COMPLETION, self.next_completion))
-        self.next_interval = Deeds.isostr_as_datetime(attr.get(ATTR_NEXT_INTERVAL, self.next_interval))
-        self.successful_completions = attr.get(ATTR_SUCCESSFUL_COMPLETIONS, self.successful_completions)
-        self.missed_completions = attr.get(ATTR_MISSED_COMPLETIONS, self.missed_completions)
-        self.current_streak = attr.get(ATTR_CURRENT_STREAK, self.current_streak)
-        self.longest_streak = attr.get(ATTR_LONGEST_STREAK, self.longest_streak)
+        self.last_completion = Deeds.isostr_as_datetime(attr.get(STORE_LAST_COMPLETION, self.last_completion))
+        self.next_completion = Deeds.isostr_as_datetime(attr.get(STORE_NEXT_COMPLETION, self.next_completion))
+        self.next_interval = Deeds.isostr_as_datetime(attr.get(STORE_NEXT_INTERVAL, self.next_interval))
+        self.rating = attr.get(STORE_RATING, self.rating)
+        self.successful_completions = attr.get(STORE_SUCCESSFUL_COMPLETIONS, self.successful_completions)
+        self.missed_completions = attr.get(STORE_MISSED_COMPLETIONS, self.missed_completions)
+        self.current_streak = attr.get(STORE_CURRENT_STREAK, self.current_streak)
+        self.longest_streak = attr.get(STORE_LONGEST_STREAK, self.longest_streak)
 
     @staticmethod
     async def store_state():
@@ -223,6 +239,7 @@ class Deeds(SensorEntity):
         if self.is_overdue():
             self.current_streak = 0
             self.missed_completions += 1
+            self.rating = self.rating * (1 - self.rating_factor)
 
             if self.reschedule_interval is not None:
                 self.next_completion = (self.next_completion + self.reschedule_interval) + self.round_up_timedelta
@@ -266,8 +283,6 @@ class Deeds(SensorEntity):
 
     async def handle_trigger(self):
         """Handles Trigger Events"""
-        old_state = self.state
-
         if self.is_valid():
             self.last_completion = datetime.datetime.now().astimezone().replace(microsecond=0)
             if self.max_interval is not None:
@@ -280,6 +295,7 @@ class Deeds(SensorEntity):
 
             self.successful_completions += 1
             self.current_streak += 1
+            self.rating = self.rating_factor + (self.rating * (1 - self.rating_factor))
 
             await self.async_update_ha_state(force_refresh=True)
             await Deeds.store_state()
