@@ -1,7 +1,8 @@
 """ Sensor """
 import dateutil.parser
 from dateutil.relativedelta import relativedelta
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, timedelta
+import math
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.entity import generate_entity_id
@@ -10,6 +11,7 @@ from homeassistant.const import CONF_NAME, ATTR_ATTRIBUTION, ATTR_NAME, EVENT_ST
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.json import JSONEncoder
 from homeassistant.exceptions import HomeAssistantError
+import homeassistant.util.dt as dt
 
 from .const import *
 
@@ -48,10 +50,11 @@ class Deeds(SensorEntity):
         self.repeat = config.get(CONF_REPEAT)
         self.start: DeedsDate = config.get(CONF_START)
         self.round_up = config.get(CONF_ROUND_UP)
-        self.max_interval = config.get(CONF_MAX_INTERVAL)
-        self.fixed_interval = config.get(CONF_FIXED_INTERVAL)
-        self.reminder_period = config.get(CONF_REMINDER_PERIOD)
-        self.valid_period = config.get(CONF_VALID_PERIOD)
+        self.round_up_offset: DeedsDate = config.get(CONF_ROUND_UP_OFFSET)
+        self.max_interval: DeedsDate = config.get(CONF_MAX_INTERVAL)
+        self.fixed_interval: DeedsDate = config.get(CONF_FIXED_INTERVAL)
+        self.reminder_period: DeedsDate = config.get(CONF_REMINDER_PERIOD)
+        self.valid_period: DeedsDate = config.get(CONF_VALID_PERIOD)
         self.unit = config.get(CONF_UNIT_OF_MEASUREMENT, DEFAULT_UNIT_OF_MEASUREMENT)
 
         self.round_up_timedelta = relativedelta()
@@ -59,10 +62,7 @@ class Deeds(SensorEntity):
             if self.round_up is True:
                 self.round_up = self.max_interval.get_max_relative_unit()
 
-            if self.start is not None:
-                offset = self.start
-            else:
-                offset = DeedsDate(month=1, day=1, hour=0, minute=0, second=0)
+            offset = self.round_up_offset
 
             if self.round_up == "years":
                 self.round_up_timedelta = relativedelta(years=1, month=offset.month, day=offset.day, hour=offset.hour, minute=offset.minute, second=offset.second, microsecond=0)
@@ -76,9 +76,9 @@ class Deeds(SensorEntity):
                 self.round_up_timedelta = relativedelta(minutes=1, second=offset.second, microsecond=0)
 
         if self.start is None and self.max_interval is not None:
-            self.start = DeedsDate.from_datetime((datetime.datetime.now().astimezone().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta)
+            self.start = DeedsDate.from_datetime((dt.now().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta)
         elif self.start is not None and self.start.is_relative:
-            self.start = DeedsDate.from_datetime((datetime.datetime.now().astimezone().replace(microsecond=0) + self.start) + self.round_up_timedelta)
+            self.start = DeedsDate.from_datetime((dt.now().replace(microsecond=0) + self.start) + self.round_up_timedelta)
 
         self.reschedule_interval = config.get(CONF_RESCHEDULE_INTERVAL)
         if self.reschedule_interval is None and self.max_interval is not None:
@@ -137,13 +137,27 @@ class Deeds(SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        current_time = datetime.datetime.now().astimezone().replace(microsecond=0)
+        current_time = dt.now().replace(microsecond=0)
         remaining_time = self.next_completion - current_time
 
-        if remaining_time.days < 0:
-            remaining_time_str = "-" + str(current_time - self.next_completion)
-        else:
+        timedict = {
+            "s": math.floor(remaining_time / timedelta(seconds=1)),
+            "m": math.floor(remaining_time / timedelta(minutes=1)),
+            "h": math.floor(remaining_time / timedelta(hours=1)),
+            "d": math.floor(remaining_time / timedelta(days=1)),
+            "M": math.floor(remaining_time / timedelta(days=30)),
+            "y": math.floor(remaining_time / timedelta(days=365)),
+        }
+
+        for k, v in timedict.items():
+            if len(str(v)) < 3:
+                remaining_time_short_str = f"{v}{k}"
+                break
+
+        if remaining_time.days >= 0:
             remaining_time_str = str(remaining_time)
+        else:
+            remaining_time_str = "-" + str(current_time - self.next_completion)
 
         return {
             ATTR_ATTRIBUTION: ATTRIBUTION,
@@ -156,6 +170,7 @@ class Deeds(SensorEntity):
             ATTR_LONGEST_STREAK: self.longest_streak,
             ATTR_REMAINING_SECONDS: remaining_time / timedelta(seconds=1),
             ATTR_REMAINING_TIME: remaining_time_str,
+            ATTR_REMAINING_TIME_SHORT: remaining_time_short_str,
             ATTR_REMIND: self.next_completion - self.reminder_period < current_time,
             ATTR_VALID: self.next_completion - self.valid_period < current_time,
         }
@@ -193,8 +208,8 @@ class Deeds(SensorEntity):
     def reset(self):
         """Resets Attributes to their defaults"""
         self.last_completion = None
-        self.next_completion = self.start.get_datetime().astimezone().replace(microsecond=0)
-        self.next_interval = self.start.get_datetime().astimezone().replace(microsecond=0)
+        self.next_completion = self.start.get_datetime().replace(microsecond=0)
+        self.next_interval = self.start.get_datetime().replace(microsecond=0)
         self.rating = 0.0
         self.successful_completions = 0
         self.missed_completions = 0
@@ -240,7 +255,8 @@ class Deeds(SensorEntity):
             return
 
         # self.next_completion = self.last_completion
-        if self.is_overdue():
+        store = False
+        while self.is_overdue():
             self.current_streak = min(-1, self.current_streak - 1)
 
             self.missed_completions += 1
@@ -250,11 +266,14 @@ class Deeds(SensorEntity):
                 self.next_completion = (self.next_completion + self.reschedule_interval) + self.round_up_timedelta
             else:
                 if self.max_interval is not None:
-                    self.next_completion = (datetime.datetime.now().astimezone().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta
+                    self.next_completion = (dt.now().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta
                 elif self.fixed_interval is not None:
                     self.next_completion = self.next_interval + self.fixed_interval
                 self.next_interval = self.next_completion
 
+            store = True
+
+        if store:
             await Deeds.store_state()
 
     ### API Management ###
@@ -281,15 +300,15 @@ class Deeds(SensorEntity):
                 pass
 
     def is_valid(self):
-        return self.next_completion - self.valid_period < datetime.datetime.now().astimezone().replace(microsecond=0)
+        return self.next_completion - self.valid_period < dt.now().replace(microsecond=0)
 
     def is_overdue(self):
-        return self.next_completion < datetime.datetime.now().astimezone().replace(microsecond=0)
+        return self.next_completion < dt.now().replace(microsecond=0)
 
     async def handle_trigger(self):
         """Handles Trigger Events"""
         if self.is_valid():
-            self.last_completion = datetime.datetime.now().astimezone().replace(microsecond=0)
+            self.last_completion = dt.now().replace(microsecond=0)
             if self.max_interval is not None:
                 self.next_completion = (self.last_completion + self.max_interval) + self.round_up_timedelta
                 self.next_interval = self.next_completion
@@ -319,7 +338,7 @@ class Deeds(SensorEntity):
         if timestr is None:
             return None
 
-        if isinstance(timestr, datetime.datetime):
+        if isinstance(timestr, datetime):
             return timestr
 
         try:

@@ -1,14 +1,13 @@
 """ Constants """
 import voluptuous as vol
 
-# from datetime import datetime, timedelta, timezone
-import datetime
-import dateutil.relativedelta
+from datetime import datetime, timedelta
+import dateutil.parser
 import homeassistant.helpers.config_validation as cv
-from homeassistant.const import CONF_NAME, CONF_PATH
-import re
+import homeassistant.util.dt as dt
 
-from homeassistant.helpers.template import relative_time, strptime
+# from homeassistant.const import CONF_NAME, CONF_PATH
+import re
 
 
 class DeedsDate(dateutil.relativedelta.relativedelta):
@@ -91,7 +90,7 @@ class DeedsDate(dateutil.relativedelta.relativedelta):
         }
 
         if self.timezone is None:
-            self.timezone = datetime.datetime.now().astimezone().tzinfo
+            self.timezone = dt.now().tzinfo
 
     @classmethod
     def from_string(cls, text):
@@ -99,13 +98,20 @@ class DeedsDate(dateutil.relativedelta.relativedelta):
         date = None
 
         if text == "now":
-            date = datetime.datetime.now().astimezone()
+            date = dt.now()
         elif text == "today":
-            date = datetime.datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+            date = dt.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        elif text == "min":
+            date = datetime.min.replace(tzinfo=dt.now().tzinfo)
 
         # standard formats, preferred: 2021-5-23 21:33:12
+        isodate = dt.now()
+        isotext = re.sub(r"^\s*(\d{2}:\d{2}(:\d{2})?)\s*$", isodate.strftime("%Y-%m-%d") + r" \g<1>", text)
+
         try:
-            date = dateutil.parser.isoparse(text)
+            date = dateutil.parser.isoparse(isotext)
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=dt.now().tzinfo)
         except:
             pass
 
@@ -180,7 +186,7 @@ class DeedsDate(dateutil.relativedelta.relativedelta):
         return any({v > 0 for v in self.weekdays.values()})
 
     def get_timedelta(self):
-        return datetime.timedelta(
+        return timedelta(
             weeks=self.weeks,
             days=self.day,
             hours=self.hour,
@@ -189,7 +195,7 @@ class DeedsDate(dateutil.relativedelta.relativedelta):
         )
 
     def get_datetime(self):
-        return datetime.datetime(
+        return datetime(
             year=self.year,
             month=self.month,
             day=self.day,
@@ -309,6 +315,7 @@ ATTR_CURRENT_STREAK = "current_streak"
 ATTR_LONGEST_STREAK = "longest_streak"
 ATTR_REMAINING_SECONDS = "remaining_seconds"
 ATTR_REMAINING_TIME = "remaining_time"
+ATTR_REMAINING_TIME_SHORT = "remaining_time_short"
 ATTR_REMIND = "remind"
 ATTR_VALID = "valid"
 
@@ -352,6 +359,7 @@ CONF_START = "start"  # date on which the activity should be completed the first
 CONF_MAX_INTERVAL = "max_interval"  # maximum time between two subsequent activity completions
 CONF_FIXED_INTERVAL = "fixed_interval"  # time between two activity completions
 CONF_ROUND_UP = "round_up"  # rounding up the to the next month, day, hour etc...
+CONF_ROUND_UP_OFFSET = "round_up_offset"  # rounding up the to the next month, day, hour etc...
 CONF_REMINDER_PERIOD = "reminder_period"  # time window where reminders are activated for activity
 CONF_VALID_PERIOD = "valid_period"  # time window where activity completion is accepted
 CONF_COUNT = "count"  # time window where activity completion is accepted
@@ -366,6 +374,7 @@ DEFAULT_UNIT_OF_MEASUREMENT = "Days"
 DEFAULT_ID_PREFIX = "deeds_"
 DEFAULT_COUNT = 1
 DEFAULT_ROUND_UP = True
+DEFAULT_ROUND_UP_OFFSET = "min"
 DEFAULT_REPEAT = True
 DEFAULT_START = "now"
 DEFAULT_MAX_INTERVAL = "1d"
@@ -428,6 +437,7 @@ CONFIG_SCHEMA = vol.Schema(
                                     vol.Optional(CONF_REPEAT, default=DEFAULT_REPEAT): check_bool_int,
                                     vol.Optional(CONF_START): check_date_period,
                                     vol.Optional(CONF_ROUND_UP, default=DEFAULT_ROUND_UP): check_round_up,
+                                    vol.Optional(CONF_ROUND_UP_OFFSET, default=DEFAULT_ROUND_UP_OFFSET): check_date,
                                     vol.Exclusive(CONF_MAX_INTERVAL, "interval"): check_period,
                                     vol.Exclusive(CONF_FIXED_INTERVAL, "interval"): check_period,
                                     vol.Optional(CONF_REMINDER_PERIOD, default=DEFAULT_REMINDER_PERIOD): check_period,
