@@ -115,8 +115,8 @@ class Deeds(SensorEntity):
                 if (attr := Deeds.stored_instances.get(k)) is not None:
                     v.attributes_from_dict(attr)
                 else:
-                    while self.is_overdue():
-                        self.calc_next_completion()
+                    while v.is_overdue():
+                        v.calc_next_completion()
 
                 v.init_done = True
 
