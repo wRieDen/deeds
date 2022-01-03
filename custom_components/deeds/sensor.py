@@ -114,6 +114,9 @@ class Deeds(SensorEntity):
             for k, v in Deeds.instances.items():
                 if (attr := Deeds.stored_instances.get(k)) is not None:
                     v.attributes_from_dict(attr)
+                else:
+                    while self.is_overdue():
+                        self.calc_next_completion()
 
                 v.init_done = True
 
@@ -250,28 +253,27 @@ class Deeds(SensorEntity):
         except HomeAssistantError as exc:
             print("Error saving current states", exc_info=exc)
 
+    def calc_next_completion(self):
+        if self.reschedule_interval is not None:
+            self.next_completion = (self.next_completion + self.reschedule_interval) + self.round_up_timedelta
+        else:
+            if self.max_interval is not None:
+                self.next_completion = (dt.now().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta
+            elif self.fixed_interval is not None:
+                self.next_completion = self.next_interval + self.fixed_interval
+            self.next_interval = self.next_completion
+
     async def async_update(self):
         """update the sensor"""
         if not self.init_done:
             return
 
-        # self.next_completion = self.last_completion
         store = False
         while self.is_overdue():
             self.current_streak = min(-1, self.current_streak - 1)
-
             self.missed_completions += 1
             self.rating = self.rating * (1 - self.rating_factor)
-
-            if self.reschedule_interval is not None:
-                self.next_completion = (self.next_completion + self.reschedule_interval) + self.round_up_timedelta
-            else:
-                if self.max_interval is not None:
-                    self.next_completion = (dt.now().replace(microsecond=0) + self.max_interval) + self.round_up_timedelta
-                elif self.fixed_interval is not None:
-                    self.next_completion = self.next_interval + self.fixed_interval
-                self.next_interval = self.next_completion
-
+            self.calc_next_completion()
             store = True
 
         if store:
@@ -329,6 +331,10 @@ class Deeds(SensorEntity):
         """Handles Reset Events"""
         # await RestoreEntity.async_internal_will_remove_from_hass(self)
         self.reset()
+
+        while self.is_overdue():
+            self.calc_next_completion()
+
         await self.async_update_ha_state(force_refresh=True)
         await Deeds.store_state()
 
