@@ -316,9 +316,8 @@ class Deeds(SensorEntity):
                 self.next_completion = (self.last_completion + self.max_interval) + self.round_up_timedelta
                 self.next_interval = self.next_completion
             elif self.fixed_interval is not None:
-                while self.next_interval < self.last_completion:
-                    self.next_completion = self.next_interval + self.fixed_interval
-                    self.next_interval = self.next_completion
+                self.next_completion = self.next_interval + self.fixed_interval
+                self.next_interval = self.next_completion
 
             self.successful_completions += 1
             self.current_streak = max(1, self.current_streak + 1)
