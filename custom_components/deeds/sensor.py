@@ -92,7 +92,7 @@ class Deeds(SensorEntity):
         self.current_streak = 0
         self.longest_streak = 0
         self.rating = 0.0
-        self.rating_factor = 0.1
+        self.rating_factor = 0.05
 
         self.reset()
 
@@ -186,11 +186,11 @@ class Deeds(SensorEntity):
     @property
     def native_value(self):
         """Return the value reported by the sensor."""
-        # return self.rating * 100.0
-        total_completions = self.successful_completions + self.missed_completions
-        if total_completions == 0:
-            return 0.0
-        return (self.successful_completions / total_completions) * 100.0
+        return self.rating * 100.0
+        # total_completions = self.successful_completions + self.missed_completions
+        # if total_completions == 0:
+        #     return 0.0
+        # return (self.successful_completions / total_completions) * 100.0
         # return 0
 
     @property
@@ -321,6 +321,7 @@ class Deeds(SensorEntity):
 
             self.successful_completions += 1
             self.current_streak = max(1, self.current_streak + 1)
+            self.longest_streak = max(self.longest_streak, self.current_streak)
             self.rating = self.rating_factor + (self.rating * (1 - self.rating_factor))
 
             await self.async_update_ha_state(force_refresh=True)
